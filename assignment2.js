@@ -98,7 +98,7 @@ window.loadImageFile = function(event)
 					heightmapData.height: height of the map (number of rows)
 			*/
 			console.log('loaded image: ' + heightmapData.width + ' x ' + heightmapData.height);
-			console.log(heightmapData);
+			// console.log(heightmapData);
 
 			// create buffers to put in mesh
 			var meshVertices = [];
@@ -121,7 +121,7 @@ window.loadImageFile = function(event)
 					index_order.push(v10, v01, v11);
 				}
 			}
-			console.log(index_order);
+			// console.log(index_order);
 
 			for (var i = 0; i < index_order.length; i++)
 			{
@@ -131,7 +131,7 @@ window.loadImageFile = function(event)
 			}
 
 			meshVertices = new Float32Array(meshVertices);
-			console.log(meshVertices);
+			// console.log(meshVertices);
 			vertexCount = meshVertices.length / 3;		// vertexCount is global variable used by draw()
 
 			var posBuffer = createBuffer(gl, gl.ARRAY_BUFFER, meshVertices);
@@ -547,7 +547,7 @@ function initialize()
 
 	var box = createBox();
 	vertexCount = box.positions.length / 3;		// vertexCount is global variable used by draw()
-	console.log(box);
+	// console.log(box);
 
 	// create buffers to put in box
 	var boxVertices = new Float32Array(box['positions']);
