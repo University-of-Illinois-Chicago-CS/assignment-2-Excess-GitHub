@@ -444,13 +444,13 @@ function addMouseCallback(canvas)
 
 		if (e.deltaY < 0) 
 		{
-			console.log("Scrolled up");
-			console.log(scale.value);
-			scale.stepUp(1);
+			// console.log("Scrolled up");
+			// console.log(scale.value);
+			scale.stepUp();
 		} else {
-			console.log("Scrolled down");
-			console.log(scale.value);
-			scale.stepDown(1);
+			// console.log("Scrolled down");
+			// console.log(scale.value);
+			scale.stepDown();
 		}
 	});
 
