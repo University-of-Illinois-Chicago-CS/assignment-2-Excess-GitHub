@@ -15,6 +15,8 @@ var rotation_slider_x = document.getElementById('rotationx');
 var rotation_slider_y = document.getElementById('rotationy');
 var rotationx = document.getElementById('rotationx').value;
 var rotationy = document.getElementById('rotationy').value;
+const fpsElem = document.querySelector("#fps");
+let then = 0;
 
 function processImage(img)
 {
@@ -113,10 +115,10 @@ window.loadImageFile = function(event)
 					var v01 = v00 + heightmapData.width;
 					var v11 = v01 + 1;
 
-					// triangle 1
-					index_order.push(v00, v10, v01);
-					// triangle 2
-					index_order.push(v01, v11, v10);
+					// triangle 1 (ordered counterclockwise)
+					index_order.push(v00, v01, v10);
+					// triangle 2 (ordered counterclockwise)
+					index_order.push(v10, v01, v11);
 				}
 			}
 			console.log(index_order);
@@ -155,9 +157,6 @@ window.loadImageFile = function(event)
 				// colors (not needed--computed by shader)
 				null, null
 			);
-
-			window.requestAnimationFrame(draw);
-
 		};
 		img.onerror = function() 
 		{
@@ -184,9 +183,11 @@ function setupViewMatrix(eye, target)
     return view;
 
 }
-function draw()
+function draw(now)
 {
-	console.log(projection.value);
+	now *= 0.001;                          // convert to seconds
+  	const deltaTime = now - then;          // compute time since last frame
+  
 	if(projection.value == "orthographic")
 	{
 		var left = -gl.canvas.clientWidth/200;
@@ -247,10 +248,6 @@ function draw()
 		rotationy = rotation_slider_y.value;
 	}
 
-	// Orienting model so that 0,0,0 index of an image is at the top left
-	const Rf = rotateYMatrix(180 * Math.PI/180);
-	modelMatrix = multiplyMatrices(Rf, multiplyMatrices(S, T));
-
 	// rotate map around y axis
 	const Ry = rotateYMatrix(rotationy * Math.PI/180);
 
@@ -258,8 +255,13 @@ function draw()
 	const Rx = rotateXMatrix(rotationx * Math.PI/180);
   
 	// M = Rx * S * T
-	modelMatrix = multiplyMatrices(Ry, modelMatrix);
+	modelMatrix = multiplyMatrices(Ry, multiplyMatrices(S, T));
 	modelMatrix = multiplyMatrices(Rx, modelMatrix);
+
+	// Orienting model so that 0,0,0 index of an image is at the top left
+	// we need to flip it at the end of all our custom rotations
+	const Rf = rotateYMatrix(180 * Math.PI/180);
+	modelMatrix = multiplyMatrices(Rf, modelMatrix);
 
 	if (projection.value == "orthographic")
 	{
@@ -310,6 +312,10 @@ function draw()
 	{
 		gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
 	}
+
+	then = now;                            // remember time for next frame
+  	const fps = 1 / deltaTime;             // compute frames per second
+  	fpsElem.textContent = fps.toFixed(1);  // update fps display
 
 	requestAnimationFrame(draw);
 
@@ -400,10 +406,10 @@ function addMouseCallback(canvas)
 	canvas.addEventListener("mousedown", function (e) 
 	{
 		if (e.button === 0) {
-			console.log("Left button pressed");
+			// console.log("Left button pressed");
 			leftMouse = true;
 		} else if (e.button === 2) {
-			console.log("Right button pressed");
+			// console.log("Right button pressed");
 			leftMouse = false;
 		}
 
@@ -415,7 +421,7 @@ function addMouseCallback(canvas)
 	document.addEventListener("keydown", function (e) 
 	{
 		if (e.code === "ControlLeft" && !e.repeat) {
-			console.log("Control key pressed");
+			// console.log("Control key pressed");
 			controlPressed = true;
 		}
 	});
@@ -423,7 +429,7 @@ function addMouseCallback(canvas)
 	document.addEventListener("keyup", function (e) 
 	{
 		if (e.code === "ControlLeft") {
-			console.log("Control key released");
+			// console.log("Control key released");
 			controlPressed = false;
 		}
 	});
@@ -455,17 +461,9 @@ function addMouseCallback(canvas)
 
 		var deltaX = currentX - startX;
 		var deltaY = currentY - startY;
-		console.log('mouse drag by: ' + deltaX + ', ' + deltaY);
+		// console.log('mouse drag by: ' + deltaX + ', ' + deltaY);
 
 		// Is dragging on x or y axis?
-
-		// deadzone
-		const deadzone = 10;
-		if (Math.abs(deltaX) < deadzone && Math.abs(deltaY) < deadzone)
-		{
-			return;
-		}
-
 		var axis = null;
 		if (Math.abs(deltaX) > Math.abs(deltaY))
 		{
@@ -489,13 +487,13 @@ function addMouseCallback(canvas)
 			{
 				rotationy = Number(rotationy) - (deltaX * rotation_speed) ;
 				rotation_slider_y.value = String(((rotationy % 360) + 360) % 360);
-				console.log(rotation_slider_y.value);
+				// console.log(rotation_slider_y.value);
 			}
 			else
 			{
-				rotationx = Number(rotationx) - (deltaY * rotation_speed) ;
+				rotationx = Number(rotationx) + (deltaY * rotation_speed) ;
 				rotation_slider_x.value = String(((rotationx % 360) + 360) % 360);
-				console.log(rotation_slider_x.value);
+				// console.log(rotation_slider_x.value);
 			}
 		}
 		else
@@ -523,7 +521,7 @@ function addMouseCallback(canvas)
 				}
 			}
 
-			console.log("X: " + translate[0] + ", Y: " + translate[1] + ", Z: " + translate[2]);
+			// console.log("X: " + translate[0] + ", Y: " + translate[1] + ", Z: " + translate[2]);
 		}
 	});
 
