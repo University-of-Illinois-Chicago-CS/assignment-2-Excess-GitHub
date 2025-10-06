@@ -306,7 +306,7 @@ function draw(now)
 	
 	if(wireframe.checked)
 	{
-		gl.drawArrays(gl.LINE_LOOP, 0, vertexCount);
+		gl.drawArrays(gl.LINES, 0, vertexCount);
 	}
 	else
 	{
@@ -370,22 +370,13 @@ function createBox()
 
 	// a rotation to provide the base of the box
 	var xRotMat = rotateXMatrix(-90 * Math.PI / 180);
-	var newT1 = transformTriangle(triangle1, xRotMat);
-	var newT2 = transformTriangle(triangle2, xRotMat);
-	box.push(...newT1);
-	box.push(...newT2);
+	box.push(...transformTriangle(triangle1, xRotMat));
+	box.push(...transformTriangle(triangle2, xRotMat));
 
 	// seems like a face was forgotten so I added it
-	for (var i=1; i<=2; i++) 
-	{
-		xRotMat = rotateXMatrix(-90 * Math.PI / 180);
-		var yRotMat = rotateYMatrix(yAngle);
-
-		newT1 = transformTriangle(newT1, xRotMat);
-		newT2 = transformTriangle(newT2, xRotMat);
-	}
-	box.push(...newT1);
-	box.push(...newT2);
+	var xRotMat = rotateXMatrix(90 * Math.PI / 180);
+	box.push(...transformTriangle(triangle1, xRotMat));
+	box.push(...transformTriangle(triangle2, xRotMat));
 
 
 	return {
