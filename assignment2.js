@@ -8,6 +8,15 @@ var vertexCount = 0;
 var uniformModelViewLoc = null;
 var uniformProjectionLoc = null;
 var heightmapData = null;
+var translate = [0, 0, 0];
+var scale = document.getElementById('scale');
+var height = document.getElementById('height');
+var rotation_slider_x = document.getElementById('rotationx');
+var rotation_slider_y = document.getElementById('rotationy');
+var rotationx = document.getElementById('rotationx').value;
+var rotationy = document.getElementById('rotationy').value;
+const fpsElem = document.querySelector("#fps");
+let then = 0;
 
 function processImage(img)
 {
@@ -26,6 +35,9 @@ function processImage(img)
 	
 	// create a an array will hold the height value
 	var heightArray = new Float32Array(sw * sh);
+
+	// create an array to hold the mesh vertex positions
+	var meshVertices = new Float32Array(3 * sw * sh);
 	
 	// loop through the image, rows then columns
 	for (var y=0;y<sh;y++) 
@@ -43,13 +55,19 @@ function processImage(img)
 
 			// store in array
 			heightArray[y*sw + x] = lum;
+
+			// store in mesh vertices
+			meshVertices[(y*sw + x)*3 + 0] = 2 * x / sw - 1;
+			meshVertices[(y*sw + x)*3 + 1] = 2 * lum - 1;
+			meshVertices[(y*sw + x)*3 + 2] = 2 * y / sh - 1;
 		}
 	}
 
 	return {
+		positions: meshVertices,
 		data: heightArray,
 		width: sw,
-		height: sw
+		height: sh
 	};
 }
 
@@ -80,7 +98,65 @@ window.loadImageFile = function(event)
 					heightmapData.height: height of the map (number of rows)
 			*/
 			console.log('loaded image: ' + heightmapData.width + ' x ' + heightmapData.height);
+			// console.log(heightmapData);
 
+			// create buffers to put in mesh
+			var meshVertices = [];
+
+			var index_order = [];
+			// order vertices to form a quad for every 4 pixel square
+			// sliding window of size 2x2
+			for (var y = 0; y < heightmapData.height-1; y++)
+			{
+				for (var x = 0; x < heightmapData.width-1; x++)
+				{
+					var v00 = y*heightmapData.width + x;
+					var v10 = v00 + 1;
+					var v01 = v00 + heightmapData.width;
+					var v11 = v01 + 1;
+
+					// triangle 1 (ordered counterclockwise)
+					index_order.push(v00, v01, v10);
+					// triangle 2 (ordered counterclockwise)
+					index_order.push(v10, v01, v11);
+				}
+			}
+			// console.log(index_order);
+
+			for (var i = 0; i < index_order.length; i++)
+			{
+				meshVertices.push(heightmapData.positions[index_order[i]*3 + 0]);
+				meshVertices.push(heightmapData.positions[index_order[i]*3 + 1]);
+				meshVertices.push(heightmapData.positions[index_order[i]*3 + 2]);
+			}
+
+			meshVertices = new Float32Array(meshVertices);
+			// console.log(meshVertices);
+			vertexCount = meshVertices.length / 3;		// vertexCount is global variable used by draw()
+
+			var posBuffer = createBuffer(gl, gl.ARRAY_BUFFER, meshVertices);
+
+			var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSrc);
+			var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSrc);
+			program = createProgram(gl, vertexShader, fragmentShader);
+
+			// attributes (per vertex)
+			var posAttribLoc = gl.getAttribLocation(program, "position");
+
+			// uniforms
+			uniformModelViewLoc = gl.getUniformLocation(program, 'modelview');
+			uniformProjectionLoc = gl.getUniformLocation(program, 'projection');
+
+			vao = createVAO(gl, 
+				// positions
+				posAttribLoc, posBuffer, 
+
+				// normals (unused in this assignments)
+				null, null, 
+
+				// colors (not needed--computed by shader)
+				null, null
+			);
 		};
 		img.onerror = function() 
 		{
@@ -107,21 +183,44 @@ function setupViewMatrix(eye, target)
     return view;
 
 }
-function draw()
+function draw(now)
 {
+	now *= 0.001;                          // convert to seconds
+  	const deltaTime = now - then;          // compute time since last frame
+  
+	if(projection.value == "orthographic")
+	{
+		var left = -gl.canvas.clientWidth/200;
+		var right = gl.canvas.clientWidth/200;
+		var bottom = gl.canvas.clientHeight/200;
+		var top = -gl.canvas.clientHeight/200;
+		var near = 200;
+		var far = -200;
 
-	var fovRadians = 70 * Math.PI / 180;
-	var aspectRatio = +gl.canvas.width / +gl.canvas.height;
-	var nearClip = 0.001;
-	var farClip = 20.0;
+		var projectionMatrix = orthographicMatrix(
+			left,
+			right,
+			bottom,
+			top,
+			near,
+			far,
+		);
+	}
+	else
+	{
+		var fovRadians = 70 * Math.PI / 180;
+		var aspectRatio = gl.canvas.clientWidth / gl.canvas.clientHeight;
+		var nearClip = 0.001;
+		var farClip = 20.0;
 
-	// perspective projection
-	var projectionMatrix = perspectiveMatrix(
-		fovRadians,
-		aspectRatio,
-		nearClip,
-		farClip,
-	);
+		// perspective projection
+		var projectionMatrix = perspectiveMatrix(
+			fovRadians,
+			aspectRatio,
+			nearClip,
+			farClip,
+		);
+	}
 
 	// eye and target
 	var eye = [0, 5, 5];
@@ -130,6 +229,52 @@ function draw()
 	var modelMatrix = identityMatrix();
 
 	// TODO: set up transformations to the model
+	// center to origin
+	const T = translateMatrix(0, 0, 0);
+  
+	// uniform scale to fit into ~[-1,1] in X/Y
+	var s = 1;
+	var h = 1;
+	if(heightmapData)
+	{
+		s = 2 / Math.max(heightmapData.width, heightmapData.height) - 1;
+		h = height.value / 100;
+	}
+	const S = scaleMatrix(scale.value * s, scale.value * h, scale.value * s);
+
+	if (!isDragging)
+	{
+		rotationx = rotation_slider_x.value;
+		rotationy = rotation_slider_y.value;
+	}
+
+	// rotate map around y axis
+	const Ry = rotateYMatrix(rotationy * Math.PI/180);
+
+	// tilt so you can see height variation
+	const Rx = rotateXMatrix(rotationx * Math.PI/180);
+  
+	// M = Rx * S * T
+	modelMatrix = multiplyMatrices(Ry, multiplyMatrices(S, T));
+	modelMatrix = multiplyMatrices(Rx, modelMatrix);
+
+	// Orienting model so that 0,0,0 index of an image is at the top left
+	// we need to flip it at the end of all our custom rotations
+	const Rf = rotateYMatrix(180 * Math.PI/180);
+	modelMatrix = multiplyMatrices(Rf, modelMatrix);
+
+	if (projection.value == "orthographic")
+	{
+		// Flipping model because orthographic projection assumes the camera is looking up the positive z-axis
+		// so if we want it to match the perspective projection, we need to flip it at the end of all our custom rotations
+		const Rf = rotateXMatrix(180 * Math.PI/180);
+		modelMatrix = multiplyMatrices(Rf, modelMatrix);
+
+	}
+
+	// panning
+	const Tx = translateMatrix(translate[0], translate[1], translate[2]);
+	modelMatrix = multiplyMatrices(Tx, modelMatrix);
 
 	// setup viewing matrix
 	var eyeToTarget = subtract(target, eye);
@@ -146,7 +291,9 @@ function draw()
 	gl.disable(gl.CULL_FACE);
 
 	gl.clearColor(0.2, 0.2, 0.2, 1);
-	gl.clear(gl.COLOR_BUFFER_BIT);
+
+	// clear depth buffer too, or else the previous image file's depth buffer will be used
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
 	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 	gl.useProgram(program);
@@ -157,8 +304,18 @@ function draw()
 
 	gl.bindVertexArray(vao);
 	
-	var primitiveType = gl.TRIANGLES;
-	gl.drawArrays(primitiveType, 0, vertexCount);
+	if(wireframe.checked)
+	{
+		gl.drawArrays(gl.LINES, 0, vertexCount);
+	}
+	else
+	{
+		gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+	}
+
+	then = now;                            // remember time for next frame
+  	const fps = 1 / deltaTime;             // compute frames per second
+  	fpsElem.textContent = fps.toFixed(1);  // update fps display
 
 	requestAnimationFrame(draw);
 
@@ -212,6 +369,11 @@ function createBox()
 	}
 
 	// a rotation to provide the base of the box
+	var xRotMat = rotateXMatrix(-90 * Math.PI / 180);
+	box.push(...transformTriangle(triangle1, xRotMat));
+	box.push(...transformTriangle(triangle2, xRotMat));
+
+	// seems like a face was forgotten so I added it
 	var xRotMat = rotateXMatrix(90 * Math.PI / 180);
 	box.push(...transformTriangle(triangle1, xRotMat));
 	box.push(...transformTriangle(triangle2, xRotMat));
@@ -226,6 +388,7 @@ function createBox()
 var isDragging = false;
 var startX, startY;
 var leftMouse = false;
+var controlPressed = false;
 
 function addMouseCallback(canvas)
 {
@@ -234,16 +397,32 @@ function addMouseCallback(canvas)
 	canvas.addEventListener("mousedown", function (e) 
 	{
 		if (e.button === 0) {
-			console.log("Left button pressed");
+			// console.log("Left button pressed");
 			leftMouse = true;
 		} else if (e.button === 2) {
-			console.log("Right button pressed");
+			// console.log("Right button pressed");
 			leftMouse = false;
 		}
 
 		isDragging = true;
 		startX = e.offsetX;
 		startY = e.offsetY;
+	});
+
+	document.addEventListener("keydown", function (e) 
+	{
+		if (e.code === "ControlLeft" && !e.repeat) {
+			// console.log("Control key pressed");
+			controlPressed = true;
+		}
+	});
+
+	document.addEventListener("keyup", function (e) 
+	{
+		if (e.code === "ControlLeft") {
+			// console.log("Control key released");
+			controlPressed = false;
+		}
 	});
 
 	canvas.addEventListener("contextmenu", function(e)  {
@@ -256,11 +435,13 @@ function addMouseCallback(canvas)
 
 		if (e.deltaY < 0) 
 		{
-			console.log("Scrolled up");
-			// e.g., zoom in
+			// console.log("Scrolled up");
+			// console.log(scale.value);
+			scale.stepUp();
 		} else {
-			console.log("Scrolled down");
-			// e.g., zoom out
+			// console.log("Scrolled down");
+			// console.log(scale.value);
+			scale.stepDown();
 		}
 	});
 
@@ -271,9 +452,68 @@ function addMouseCallback(canvas)
 
 		var deltaX = currentX - startX;
 		var deltaY = currentY - startY;
-		console.log('mouse drag by: ' + deltaX + ', ' + deltaY);
+		// console.log('mouse drag by: ' + deltaX + ', ' + deltaY);
 
-		// implement dragging logic
+		// Is dragging on x or y axis?
+		var axis = null;
+		if (Math.abs(deltaX) > Math.abs(deltaY))
+		{
+			axis = "x";
+		}
+		else
+		{
+			axis = "y";
+		}
+
+		if(leftMouse)
+		{
+			// update start position so that the rotation angle doesnt keep increasing as we keep dragging
+			startX = currentX;
+			startY = currentY;
+
+			// rotation speed (rotates too fast otherwise)
+			var rotation_speed = 0.5;
+
+			if(axis === "x")
+			{
+				rotationy = Number(rotationy) - (deltaX * rotation_speed) ;
+				rotation_slider_y.value = String(((rotationy % 360) + 360) % 360);
+				// console.log(rotation_slider_y.value);
+			}
+			else
+			{
+				rotationx = Number(rotationx) + (deltaY * rotation_speed) ;
+				rotation_slider_x.value = String(((rotationx % 360) + 360) % 360);
+				// console.log(rotation_slider_x.value);
+			}
+		}
+		else
+		{
+			// update start position so that the panning increments evenly
+			startX = currentX;
+			startY = currentY;
+
+			// panning speed (panning too fast otherwise)
+			var panning_speed = 0.01;
+
+			if(controlPressed)
+			{
+				// panning on y axis
+				translate[1] -= deltaY * panning_speed;
+			}
+			else
+			{
+				// panning on x and z axis
+				translate[0] += deltaX * panning_speed;
+				// panning on z axis for perspective projection cuz you can't see panning on Z axis in ortho anyway
+				if (projection.value == "perspective")
+				{
+					translate[2] += deltaY * panning_speed;
+				}
+			}
+
+			// console.log("X: " + translate[0] + ", Y: " + translate[1] + ", Z: " + translate[2]);
+		}
 	});
 
 	document.addEventListener("mouseup", function () {
@@ -298,7 +538,7 @@ function initialize()
 
 	var box = createBox();
 	vertexCount = box.positions.length / 3;		// vertexCount is global variable used by draw()
-	console.log(box);
+	// console.log(box);
 
 	// create buffers to put in box
 	var boxVertices = new Float32Array(box['positions']);
